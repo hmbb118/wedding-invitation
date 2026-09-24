@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>婚礼场地卫星地图</title>
+  <!-- Leaflet via BootCDN（国内稳定，无需翻墙） -->
+  <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; background: #10141b; }
+    /* 金色婚礼标记：圆点 + 脉冲环 */
+    .wedding-marker { position: relative; width: 26px; height: 26px; }
+    .wedding-marker .dot {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: linear-gradient(135deg, #F4E4BC, #D4AF37);
+      border: 2px solid #fff; box-shadow: 0 2px 12px rgba(212,175,55,0.6);
+    }
+    .wedding-marker .pulse {
+      position: absolute; inset: -6px; border-radius: 50%;
+      border: 2px solid rgba(212,175,55,0.7); animation: pulse 1.8s ease-out infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.7); opacity: 1; }
+      100% { transform: scale(2); opacity: 0; }
+    }
+    .marker-popup .name {
+      font-weight: 700; font-size: 13px; color: #5C3A2E; font-family: 'Noto Serif SC', serif;
+    }
+    .marker-popup .sub { font-size: 11px; color: #8B6B4A; margin-top: 2px; }
+    .leaflet-control-attribution { font-size: 9px !important; opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    // ========== 婚礼场地坐标（施家镇青杠嘴）==========
+    // 坐标为 GCJ-02（火星坐标，来自腾讯地图精确值），高德瓦片同为 GCJ-02，
+    // 因此无需再做偏移转换，直接使用即可。
+    var SRC_LAT = 30.318026, SRC_LNG = 104.762858;
+
+    // WGS-84 → GCJ-02 标准偏移算法
+    function gcjOffset(lat, lng) {
+      var a = 6378245.0, ee = 0.00669342162296594323;
+      function outOfChina(l, t) { return t < 0.8293 || t > 55.8271 || l < 72.004 || l > 137.8347; }
+      function transformLat(x, y) {
+        var r = -100.0 + 2.0*x + 3.0*y + 0.2*y*y + 0.1*x*y + 0.2*Math.sqrt(Math.abs(x));
+        r += (20.0*Math.sin(6.0*x*Math.PI) + 20.0*Math.sin(2.0*x*Math.PI)) * 2.0/3.0;
+        r += (20.0*Math.sin(y*Math.PI) + 40.0*Math.sin(y/3.0*Math.PI)) * 2.0/3.0;
+        r += (160.0*Math.sin(y/12.0*Math.PI) + 320.0*Math.sin(y*Math.PI/30.0)) * 2.0/3.0;
+        return r;
+      }
+      function transformLng(x, y) {
+        var r = 300.0 + x + 2.0*y + 0.1*x*x + 0.1*x*y + 0.1*Math.sqrt(Math.abs(x));
+        r += (20.0*Math.sin(6.0*x*Math.PI) + 20.0*Math.sin(2.0*x*Math.PI)) * 2.0/3.0;
+        r += (20.0*Math.sin(x*Math.PI) + 40.0*Math.sin(x/3.0*Math.PI)) * 2.0/3.0;
+        r += (150.0*Math.sin(x/12.0*Math.PI) + 300.0*Math.sin(x/30.0*Math.PI)) * 2.0/3.0;
+        return r;
+      }
+      if (outOfChina(lng, lat)) return { lat: lat, lng: lng };
+      var dLat = transformLat(lng - 105.0, lat - 35.0);
+      var dLng = transformLng(lng - 105.0, lat - 35.0);
+      var radLat = lat / 180.0 * Math.PI;
+      var magic = Math.sin(radLat); magic = 1 - ee * magic * magic;
+      var sqrtMagic = Math.sqrt(magic);
+      dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI);
+      dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * Math.PI);
+      return { lat: lat + dLat, lng: lng + dLng };
+    }
+
+    // 坐标已是 GCJ-02，直接使用，不再做 WGS-84 → GCJ-02 偏移
+    var coord = { lat: SRC_LAT, lng: SRC_LNG };
+
+    // ========== 初始化地图 ==========
+    var map = L.map('map', {
+      center: [coord.lat, coord.lng],
+      zoom: 15,
+      minZoom: 3,
+      maxZoom: 18,
+      zoomControl: false,
+      attributionControl: true
+    });
+    // 移动端用右下角小缩放按钮
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    // 高德卫星影像瓦片（免 key 直连，国内可达）
+    // style=6 纯卫星影像；style=7 卫星+路网标注
+    L.tileLayer('https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}', {
+      subdomains: ['1', '2', '3', '4'],
+      maxZoom: 18,
+      attribution: '影像 © 高德地图'
+    }).addTo(map);
+
+    // 金色婚礼标记点
+    var icon = L.divIcon({
+      className: '',
+      html: '<div class="wedding-marker"><span class="pulse"></span><span class="dot"></span></div>',
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+      popupAnchor: [0, -18]
+    });
+
+    var marker = L.marker([coord.lat, coord.lng], { icon: icon }).addTo(map);
+    marker.bindPopup(
+      '<div class="marker-popup"><div class="name">施家镇青杠嘴</div><div class="sub">婚礼场地 · 我们在这里等你</div></div>',
+      { closeButton: false, offset: [0, -6] }
+    ).openPopup();
+
+    // 标记闪烁一圈：初次加载完成后自动缩放展示
+    setTimeout(function () {
+      map.setView([coord.lat, coord.lng], 15, { animate: true });
+    }, 300);
+  </script>
+</body>
+</html>
